@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>3D Train on Circular Track</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        canvas { display: block; }
+        #info {
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            text-align: center;
+            color: white;
+            font-family: Arial, sans-serif;
+            pointer-events: none;
+            text-shadow: 1px 1px 1px rgba(0,0,0,0.5);
+        }
+        #skullImage {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 100px;
+            height: 100px;
+            display: none;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">3D Train Model - Click and drag to rotate, scroll to zoom</div>
+    <img id="skullImage" src="/api/placeholder/100/100" alt="Skull Image">
+    <audio id="backgroundMusic" loop>
+        <source src="music.mp3" type="audio/mpeg">
+        Your browser does not support the audio element.
+    </audio>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
+    <script>
+        // Play background music on page load
+        window.addEventListener('load', function() {
+            const backgroundMusic = document.getElementById('backgroundMusic');
+            backgroundMusic.volume = 0.5; // Set volume to 50%
+            backgroundMusic.play().catch(e => {
+                console.log("Audio couldn't autoplay: " + e);
+                // Most browsers require user interaction before playing audio
+                // Create play button as fallback
+                const playButton = document.createElement('button');
+                playButton.innerText = "Play Music";
+                playButton.style.position = "absolute";
+                playButton.style.top = "50px";
+                playButton.style.left = "10px";
+                playButton.style.zIndex = "1000";
+                playButton.onclick = function() {
+                    backgroundMusic.play();
+                    this.remove();
+                };
+                document.body.appendChild(playButton);
+            });
+        });
+
+        // Setup skull image display every 10 seconds
+        const skullImage = document.getElementById('skullImage');
+        setInterval(function() {
+            skullImage.style.display = 'block';
+            setTimeout(function() {
+                skullImage.style.display = 'none';
+            }, 1000); // Show for 1 second
+        }, 10000); // Repeat every 10 seconds
+
+        // Set up scene
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB);
+        
+        // Set up camera
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 20, 30);
+        
+        // Set up renderer
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+        
+        // Add light
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+        
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(20, 30, 20);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.mapSize.width = 1024;
+        directionalLight.shadow.mapSize.height = 1024;
+        scene.add(directionalLight);
+        
+        // Add ground
+        const groundGeometry = new THREE.CircleGeometry(25, 32);
+        const groundMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0x8B8B83,
+            roughness: 0.8
+        });
+        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.y = -1;
+        ground.receiveShadow = true;
+        scene.add(ground);
+        
+        // Create circular tracks
+        function createCircularTracks() {
+            const trackGroup = new THREE.Group();
+            
+            // Outer Rail
+            const outerRailGeometry = new THREE.TorusGeometry(20, 0.2, 8, 100);
+            const railMaterial = new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.7 });
+            const outerRail = new THREE.Mesh(outerRailGeometry, railMaterial);
+            outerRail.rotation.x = Math.PI / 2;
+            outerRail.position.y = -0.9;
+            outerRail.receiveShadow = true;
+            outerRail.castShadow = true;
+            
+            // Inner Rail
+            const innerRailGeometry = new THREE.TorusGeometry(18, 0.2, 8, 100);
+            const innerRail = new THREE.Mesh(innerRailGeometry, railMaterial);
+            innerRail.rotation.x = Math.PI / 2;
+            innerRail.position.y = -0.9;
+            innerRail.receiveShadow = true;
+            innerRail.castShadow = true;
+            
+            trackGroup.add(outerRail);
+            trackGroup.add(innerRail);
+            
+            // Sleepers (Ties)
+            const sleeperGeometry = new THREE.BoxGeometry(3, 0.3, 0.8);
+            const sleeperMaterial = new THREE.MeshStandardMaterial({ color: 0x614126 });
+            
+            const numSleepers = 80;
+            for (let i = 0; i < numSleepers; i++) {
+                const angle = (i / numSleepers) * Math.PI * 2;
+                const sleeper = new THREE.Mesh(sleeperGeometry, sleeperMaterial);
+                
+                sleeper.position.x = Math.cos(angle) * 19;
+                sleeper.position.y = -1;
+                sleeper.position.z = Math.sin(angle) * 19;
+                
+                // Rotate sleepers to align with the track
+                sleeper.rotation.y = angle + Math.PI/2;
+                
+                sleeper.receiveShadow = true;
+                sleeper.castShadow = true;
+                trackGroup.add(sleeper);
+            }
+            
+            return trackGroup;
+        }
+        
+        const tracks = createCircularTracks();
+        scene.add(tracks);
+        
+        // Create Train Locomotive
+        function createLocomotive() {
+            const locomotive = new THREE.Group();
+            
+            // Main body
+            const bodyGeometry = new THREE.BoxGeometry(4, 2, 2);
+            const bodyMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x222222, 
+                roughness: 0.5 
+            });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.position.y = 0.5;
+            body.castShadow = true;
+            body.receiveShadow = true;
+            locomotive.add(body);
+            
+            // Cabin
+            const cabinGeometry = new THREE.BoxGeometry(2, 1.5, 2);
+            const cabinMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x333333, 
+                roughness: 0.6 
+            });
+            const cabin = new THREE.Mesh(cabinGeometry, cabinMaterial);
+            cabin.position.set(-1, 1.75, 0);
+            cabin.castShadow = true;
+            cabin.receiveShadow = true;
+            locomotive.add(cabin);
+            
+            // Windows
+            const windowMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x88CCFF, 
+                roughness: 0.2,
+                metalness: 0.8
+            });
+            
+            // Front window
+            const frontWindowGeometry = new THREE.PlaneGeometry(0.8, 0.6);
+            const frontWindow = new THREE.Mesh(frontWindowGeometry, windowMaterial);
+            frontWindow.position.set(-0.01, 1.8, 0);
+            frontWindow.rotation.y = Math.PI / 2;
+            locomotive.add(frontWindow);
+            
+            // Side windows
+            const sideWindowGeometry = new THREE.PlaneGeometry(0.6, 0.4);
+            
+            const leftWindow = new THREE.Mesh(sideWindowGeometry, windowMaterial);
+            leftWindow.position.set(-1, 1.8, 1.01);
+            locomotive.add(leftWindow);
+            
+            const rightWindow = new THREE.Mesh(sideWindowGeometry, windowMaterial);
+            rightWindow.position.set(-1, 1.8, -1.01);
+            rightWindow.rotation.y = Math.PI;
+            locomotive.add(rightWindow);
+            
+            // Smokestack
+            const stackGeometry = new THREE.CylinderGeometry(0.3, 0.3, 1, 16);
+            const stackMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x444444, 
+                roughness: 0.7 
+            });
+            const smokestack = new THREE.Mesh(stackGeometry, stackMaterial);
+            smokestack.position.set(1, 2, 0);
+            smokestack.castShadow = true;
+            smokestack.receiveShadow = true;
+            locomotive.add(smokestack);
+            
+            // Wheels - Fixed rotation axis to match train movement
+            const wheelGeometry = new THREE.CylinderGeometry(0.5, 0.5, 0.2, 16);
+            const wheelMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x111111,
+                roughness: 0.7
+            });
+            
+            // Add six wheels (three on each side)
+            const wheelPositions = [
+                [-1.5, -0.5, 1.1],
+                [0, -0.5, 1.1],
+                [1.5, -0.5, 1.1],
+                [-1.5, -0.5, -1.1],
+                [0, -0.5, -1.1],
+                [1.5, -0.5, -1.1]
+            ];
+            
+            const wheels = [];
+            
+            wheelPositions.forEach((pos, i) => {
+                const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                wheel.position.set(pos[0], pos[1], pos[2]);
+                // Rotate to have correct orientation for circular movement
+                wheel.rotation.z = Math.PI / 2;
+                wheel.castShadow = true;
+                wheel.receiveShadow = true;
+                locomotive.add(wheel);
+                wheels.push(wheel);
+            });
+            
+            // Front light
+            const lightGeometry = new THREE.SphereGeometry(0.2, 16, 16);
+            const lightMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xFFFF00, 
+                emissive: 0xFFFF00,
+                emissiveIntensity: 0.5
+            });
+            const light = new THREE.Mesh(lightGeometry, lightMaterial);
+            light.position.set(2.1, 0.5, 0);
+            locomotive.add(light);
+            
+            // Add spotlight for the front light
+            const spotlight = new THREE.SpotLight(0xFFFFAA, 1);
+            spotlight.position.set(2.1, 0.5, 0);
+            spotlight.angle = Math.PI / 6;
+            spotlight.penumbra = 0.2;
+            spotlight.distance = 20;
+            spotlight.target.position.set(5, -0.5, 0);
+            spotlight.castShadow = true;
+            locomotive.add(spotlight);
+            locomotive.add(spotlight.target);
+            
+            // Animation properties
+            locomotive.userData = {
+                wheels: wheels,
+                light: light,
+                spotlight: spotlight,
+                smoke: []
+            };
+            
+            return locomotive;
+        }
+        
+        // Create Passenger Car
+        function createPassengerCar() {
+            const passengerCar = new THREE.Group();
+            
+            // Main body
+            const bodyGeometry = new THREE.BoxGeometry(5, 2, 2);
+            const bodyMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x2244AA, 
+                roughness: 0.5 
+            });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.position.y = 0.5;
+            body.castShadow = true;
+            body.receiveShadow = true;
+            passengerCar.add(body);
+            
+            // Windows
+            const windowMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x88CCFF, 
+                roughness: 0.2,
+                metalness: 0.8
+            });
+            
+            // Side windows
+            for (let i = -1.5; i <= 1.5; i += 1) {
+                const leftWindowGeometry = new THREE.PlaneGeometry(0.6, 0.6);
+                const leftWindow = new THREE.Mesh(leftWindowGeometry, windowMaterial);
+                leftWindow.position.set(i, 0.7, 1.01);
+                passengerCar.add(leftWindow);
+                
+                const rightWindow = new THREE.Mesh(leftWindowGeometry, windowMaterial);
+                rightWindow.position.set(i, 0.7, -1.01);
+                rightWindow.rotation.y = Math.PI;
+                passengerCar.add(rightWindow);
+            }
+            
+            // Wheels - Fixed rotation axis
+            const wheelGeometry = new THREE.CylinderGeometry(0.5, 0.5, 0.2, 16);
+            const wheelMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x111111,
+                roughness: 0.7
+            });
+            
+            // Add four wheels (two on each side)
+            const wheelPositions = [
+                [-1.5, -0.5, 1.1],
+                [1.5, -0.5, 1.1],
+                [-1.5, -0.5, -1.1],
+                [1.5, -0.5, -1.1]
+            ];
+            
+            const wheels = [];
+            
+            wheelPositions.forEach((pos) => {
+                const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                wheel.position.set(pos[0], pos[1], pos[2]);
+                // Rotate to have correct orientation for circular movement
+                wheel.rotation.z = Math.PI / 2;
+                wheel.castShadow = true;
+                wheel.receiveShadow = true;
+                passengerCar.add(wheel);
+                wheels.push(wheel);
+            });
+            
+            // Animation properties
+            passengerCar.userData = {
+                wheels: wheels
+            };
+            
+            return passengerCar;
+        }
+        
+        // Create Cargo Car
+        function createCargoCar() {
+            const cargoCar = new THREE.Group();
+            
+            // Main body
+            const bodyGeometry = new THREE.BoxGeometry(5, 1, 2);
+            const bodyMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x8B4513, 
+                roughness: 0.8 
+            });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.position.y = 0;
+            body.castShadow = true;
+            body.receiveShadow = true;
+            cargoCar.add(body);
+            
+            // Cargo
+            const cargoGeometry = new THREE.BoxGeometry(4, 1, 1.8);
+            const cargoMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x777777, 
+                roughness: 0.9
+            });
+            const cargo = new THREE.Mesh(cargoGeometry, cargoMaterial);
+            cargo.position.y = 1;
+            cargo.castShadow = true;
+            cargo.receiveShadow = true;
+            cargoCar.add(cargo);
+            
+            // Wheels - Fixed rotation axis
+            const wheelGeometry = new THREE.CylinderGeometry(0.5, 0.5, 0.2, 16);
+            const wheelMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x111111,
+                roughness: 0.7
+            });
+            
+            // Add four wheels (two on each side)
+            const wheelPositions = [
+                [-1.5, -0.5, 1.1],
+                [1.5, -0.5, 1.1],
+                [-1.5, -0.5, -1.1],
+                [1.5, -0.5, -1.1]
+            ];
+            
+            const wheels = [];
+            
+            wheelPositions.forEach((pos) => {
+                const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                wheel.position.set(pos[0], pos[1], pos[2]);
+                // Rotate to have correct orientation for circular movement
+                wheel.rotation.z = Math.PI / 2;
+                wheel.castShadow = true;
+                wheel.receiveShadow = true;
+                cargoCar.add(wheel);
+                wheels.push(wheel);
+            });
+            
+            // Animation properties
+            cargoCar.userData = {
+                wheels: wheels
+            };
+            
+            return cargoCar;
+        }
+        
+        // Create full train
+        const trainGroup = new THREE.Group();
+        
+        const locomotive = createLocomotive();
+        trainGroup.add(locomotive);
+        
+        const passengerCar1 = createPassengerCar();
+        passengerCar1.position.x = -7;
+        trainGroup.add(passengerCar1);
+        
+        const cargoCar = createCargoCar();
+        cargoCar.position.x = -14;
+        trainGroup.add(cargoCar);
+        
+        const passengerCar2 = createPassengerCar();
+        passengerCar2.position.x = -21;
+        trainGroup.add(passengerCar2);
+        
+        // Position train on the circular track
+        trainGroup.position.set(19, 0, 0);
+        scene.add(trainGroup);
+        
+        // Function to create smoke particles
+        function createSmoke() {
+            const smokeGeometry = new THREE.SphereGeometry(0.2, 8, 8);
+            const smokeMaterial = new THREE.MeshStandardMaterial({
+                color: 0xDDDDDD,
+                transparent: true,
+                opacity: 0.7
+            });
+            
+            // Calculate the correct world position
+            const worldPos = new THREE.Vector3();
+            locomotive.children[3].getWorldPosition(worldPos); // Smokestack
+            
+            const smoke = new THREE.Mesh(smokeGeometry, smokeMaterial);
+            smoke.position.set(
+                worldPos.x + (Math.random() * 0.2 - 0.1),
+                worldPos.y + 0.5 + (Math.random() * 0.2),
+                worldPos.z + (Math.random() * 0.2 - 0.1)
+            );
+            
+            smoke.userData = {
+                life: 0,
+                lifespan: 2 + Math.random() * 2
+            };
+            
+            scene.add(smoke);
+            return smoke;
+        }
+        
+        // Set up orbit controls for camera
+        const OrbitControls = function(object, domElement) {
+            this.object = object;
+            this.domElement = domElement;
+            
+            // API
+            this.enabled = true;
+            this.target = new THREE.Vector3();
+            
+            // Mouse buttons
+            this.mouseButtons = { LEFT: THREE.MOUSE.ROTATE };
+            
+            // Internals
+            let scope = this;
+            let STATE = { NONE: -1, ROTATE: 0, DOLLY: 1, PAN: 2 };
+            let state = STATE.NONE;
+            let EPS = 0.000001;
+            
+            let rotateStart = new THREE.Vector2();
+            let rotateEnd = new THREE.Vector2();
+            let rotateDelta = new THREE.Vector2();
+            
+            let offset = new THREE.Vector3();
+            
+            let lastPosition = new THREE.Vector3();
+            let lastQuaternion = new THREE.Quaternion();
+            
+            let spherical = new THREE.Spherical();
+            let sphericalDelta = new THREE.Spherical();
+            
+            let scale = 1;
+            let panOffset = new THREE.Vector3();
+            let zoomChanged = false;
+            
+            // Event handlers
+            function onMouseDown(event) {
+                event.preventDefault();
+                
+                switch (event.button) {
+                    case scope.mouseButtons.LEFT:
+                        rotateStart.set(event.clientX, event.clientY);
+                        state = STATE.ROTATE;
+                        break;
+                }
+                
+                document.addEventListener('mousemove', onMouseMove, false);
+                document.addEventListener('mouseup', onMouseUp, false);
+            }
+            
+            function onMouseMove(event) {
+                event.preventDefault();
+                
+                if (state === STATE.ROTATE) {
+                    rotateEnd.set(event.clientX, event.clientY);
+                    rotateDelta.subVectors(rotateEnd, rotateStart);
+                    
+                    // Rotating across the entire screen goes 360 degrees around
+                    scope.rotateLeft(2 * Math.PI * rotateDelta.x / scope.domElement.clientWidth);
+                    scope.rotateUp(2 * Math.PI * rotateDelta.y / scope.domElement.clientHeight);
+                    
+                    rotateStart.copy(rotateEnd);
+                    scope.update();
+                }
+            }
+            
+            function onMouseUp() {
+                document.removeEventListener('mousemove', onMouseMove, false);
+                document.removeEventListener('mouseup', onMouseUp, false);
+                state = STATE.NONE;
+            }
+            
+            function onMouseWheel(event) {
+                event.preventDefault();
+                
+                if (event.deltaY < 0) {
+                    scope.dollyIn(1.1);
+                } else {
+                    scope.dollyOut(1.1);
+                }
+                
+                scope.update();
+            }
+            
+            this.domElement.addEventListener('mousedown', onMouseDown, false);
+            this.domElement.addEventListener('wheel', onMouseWheel, false);
+            
+            // Methods
+            this.rotateLeft = function(angle) {
+                sphericalDelta.theta -= angle;
+            };
+            
+            this.rotateUp = function(angle) {
+                sphericalDelta.phi -= angle;
+            };
+            
+            this.dollyIn = function(dollyScale) {
+                scale /= dollyScale;
+            };
+            
+            this.dollyOut = function(dollyScale) {
+                scale *= dollyScale;
+            };
+            
+            this.update = function() {
+                let position = scope.object.position;
+                offset.copy(position).sub(scope.target);
+                
+                // Convert to spherical coordinates
+                spherical.setFromVector3(offset);
+                
+                // Apply rotation changes
+                spherical.theta += sphericalDelta.theta;
+                spherical.phi += sphericalDelta.phi;
+                
+                // Restrict phi to be between minimum and maximum values
+                spherical.phi = Math.max(0.1, Math.min(Math.PI - 0.1, spherical.phi));
+                spherical.makeSafe();
+                
+                // Apply scale change
+                spherical.radius *= scale;
+                
+                // Restrict radius to be between min and max values
+                spherical.radius = Math.max(1, Math.min(100, spherical.radius));
+                
+                // Convert back to Cartesian coordinates
+                offset.setFromSpherical(spherical);
+                
+                // Add offset to target
+                position.copy(scope.target).add(offset);
+                
+                scope.object.lookAt(scope.target);
+                
+                // Reset changes
+                sphericalDelta.set(0, 0, 0);
+                scale = 1;
+                
+                return true;
+            };
+        };
+        
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.target.set(0, 0, 0);
+        controls.update();
+        
+        // Animation settings
+        let trainRunning = true;
+        let trainSpeed = 0.01;
+        let angle = 0;
+        let radius = 19;
+        let lastSmokeTime = 0;
+        
+        // Set up GUI controls
+        const gui = new dat.GUI();
+        const trainControls = {
+            speed: trainSpeed,
+            running: trainRunning,
+            reverseDirection: function() {
+                trainSpeed = -trainSpeed;
+            },
+            musicVolume: 0.5
+        };
+        
+        gui.add(trainControls, 'speed', 0.001, 0.03).onChange(value => {
+            trainSpeed = value;
+        });
+        gui.add(trainControls, 'running').onChange(value => {
+            trainRunning = value;
+        });
+        gui.add(trainControls, 'reverseDirection');
+        gui.add(trainControls, 'musicVolume', 0, 1).onChange(value => {
+            document.getElementById('backgroundMusic').volume = value;
+        });
+        
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            if (trainRunning) {
+                // Update angle
+                angle += trainSpeed;
+                
+                // Calculate new position on the circle
+                const x = Math.cos(angle) * radius;
+                const z = Math.sin(angle) * radius;
+                
+                // Update train position
+                trainGroup.position.set(x, 0, z);
+                
+                // Orient train tangent to the circle
+                trainGroup.rotation.y = angle + Math.PI/2;
+                
+                // Rotate wheels - properly oriented to the movement direction
+                [locomotive, passengerCar1, cargoCar, passengerCar2].forEach(car => {
+                    if (car.userData.wheels) {
+                        car.userData.wheels.forEach(wheel => {
+                            wheel.rotation.x += 0.1 * Math.sign(trainSpeed);
+                        });
+                    }
+                });
+                
+                // Generate smoke
+                const currentTime = Date.now();
+                if (currentTime - lastSmokeTime > 300) { // Create smoke every 300ms
+                    const smoke = createSmoke();
+                    locomotive.userData.smoke.push(smoke);
+                    lastSmokeTime = currentTime;
+                }
+                
+                // Animate existing smoke particles
+                for (let i = 0; i < locomotive.userData.smoke.length; i++) {
+                    const smoke = locomotive.userData.smoke[i];
+                    smoke.position.y += 0.05;
+                    
+                    smoke.userData.life += 0.016; // Approximately 60fps
+                    
+                    // Scale and fade smoke
+                    const lifeRatio = smoke.userData.life / smoke.userData.lifespan;
+                    smoke.scale.set(1 + lifeRatio, 1 + lifeRatio, 1 + lifeRatio);
+                    smoke.material.opacity = 0.7 * (1 - lifeRatio);
+                    
+                    // Remove old smoke
+                    if (smoke.userData.life >= smoke.userData.lifespan) {
+                        scene.remove(smoke);
+                        locomotive.userData.smoke.splice(i, 1);
+                        i--;
+                    }
+                }
+                
+                // Update spotlight direction to follow train orientation
+                if (locomotive.userData.spotlight) {
+                    const target = locomotive.userData.spotlight.target;
+                    target.position.set(
+                        x + Math.cos(angle + Math.PI/2) * 5,
+                        -0.5,
+                        z + Math.sin(angle + Math.PI/2) * 5
+                    );
+                }
+                
+                // Flicker light
+                if (locomotive.userData.light) {
+                    const flickerValue = 0.5 + Math.random() * 0.5;
+                    locomotive.userData.light.material.emissiveIntensity = flickerValue;
+                    locomotive.userData.spotlight.intensity = flickerValue;
+                }
+            }
+            
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        
+        // Handle window resize
+        window.addEventListener('resize', function() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        
+        // Start animation
+        animate();
+    </script>
+</body>
+</html>
